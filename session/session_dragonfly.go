@@ -23,7 +23,10 @@ func generateSecureId() (string, error) {
 	_, err := rand.Read(randomBytes)
 
 	if err != nil {
-		return "", fmt.Errorf("Generate secure id failed with error: %v", err.Error())
+		return "", fmt.Errorf(
+			"Generate secure id failed with error: %v",
+			err.Error(),
+		)
 	}
 
 	return hex.EncodeToString(randomBytes), nil
@@ -37,7 +40,9 @@ type CreateDragonflyClientOptions struct {
 	Password   string
 }
 
-func CreateDragonflySessionManager(options *CreateDragonflyClientOptions) *DragonflySessionManager {
+func CreateDragonflySessionManager(
+	options *CreateDragonflyClientOptions,
+) *DragonflySessionManager {
 	client := redis.NewClient(&redis.Options{
 		Username: options.Username,
 		Password: options.Password,
@@ -56,7 +61,10 @@ type DragonflySessionManager struct {
 	client *redis.Client
 }
 
-func (dsm *DragonflySessionManager) CreateSession(ctx context.Context, sData *SessionData) (string, error) {
+func (dsm *DragonflySessionManager) CreateSession(
+	ctx context.Context,
+	sData *SessionData,
+) (string, error) {
 	sId, err := generateSecureId()
 
 	if err != nil {
