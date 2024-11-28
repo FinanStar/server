@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -105,4 +106,40 @@ func (dsm *DragonflySessionManager) CreateSession(
 	}
 
 	return sId, nil
+}
+
+func (dsm *DragonflySessionManager) DeleteSession(
+	ctx context.Context,
+	sId string,
+) error {
+	sessionKey := fmt.Sprintf("%s:%s", SESSION_KEY_PREFIX, sId)
+	userId, err := dsm.client.Get(
+		ctx,
+		sessionKey,
+	).Result()
+
+	if err == redis.Nil {
+		return errors.New("There is no session with provided sId")
+	}
+
+	if err != nil {
+		return err
+	}
+
+	pipe := dsm.client.TxPipeline()
+
+	pipe.Del(ctx, sessionKey)
+	pipe.SRem(
+		ctx,
+		fmt.Sprintf("%s:%s", KNOWN_SESSIONS_SET_KEY_PREFIX, userId),
+		sId,
+	)
+
+	_, err = pipe.Exec(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
