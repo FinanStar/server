@@ -143,3 +143,24 @@ func (dsm *DragonflySessionManager) DeleteSession(
 
 	return nil
 }
+
+func (dsm *DragonflySessionManager) RenewalSession(
+	ctx context.Context,
+	sId string,
+) error {
+	success, err := dsm.client.Expire(
+		ctx,
+		fmt.Sprintf("%s:%s", SESSION_KEY_PREFIX, sId),
+		SESSION_TTL,
+	).Result()
+
+	if err != nil {
+		return err
+	}
+
+	if success {
+		return errors.New("Provided session is not existing")
+	}
+
+	return nil
+}
