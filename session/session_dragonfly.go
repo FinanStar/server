@@ -191,3 +191,42 @@ func (dsm *DragonflySessionManager) GetSessionData(
 
 	return &SessionData{UserId: uint32(userIdConverted)}, nil
 }
+
+func (dsm *DragonflySessionManager) ResetSessions(
+	ctx context.Context,
+	userId uint32,
+) error {
+	knownSessionsSetKey := fmt.Sprintf(
+		"%s:%d",
+		KNOWN_SESSIONS_SET_KEY_PREFIX,
+		userId,
+	)
+	sIds, err := dsm.client.SMembers(
+		ctx,
+		knownSessionsSetKey,
+	).Result()
+
+	if err != nil {
+		return err
+	}
+
+	pipe := dsm.client.TxPipeline()
+	delSessionsCmd := pipe.Del(ctx, sIds...)
+	delKnownSessionsSetCmd := pipe.Del(ctx, knownSessionsSetKey)
+
+	_, execErr := pipe.Exec(ctx)
+
+	if execErr != nil {
+		return execErr
+	}
+
+	if err = delSessionsCmd.Err(); err != nil {
+		return err
+	}
+
+	if err = delKnownSessionsSetCmd.Err(); err != nil {
+		return err
+	}
+
+	return nil
+}
