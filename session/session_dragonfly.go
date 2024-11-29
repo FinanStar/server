@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -163,4 +164,30 @@ func (dsm *DragonflySessionManager) RenewalSession(
 	}
 
 	return nil
+}
+
+func (dsm *DragonflySessionManager) GetSessionData(
+	ctx context.Context,
+	sId string,
+) (*SessionData, error) {
+	userId, err := dsm.client.Get(
+		ctx,
+		fmt.Sprintf("%s:%s", SESSION_KEY_PREFIX, sId),
+	).Result()
+
+	if err == redis.Nil {
+		return nil, errors.New("There is no session with provided sId")
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	userIdConverted, err := strconv.ParseInt(userId, 10, 32)
+
+	if err != nil {
+		return nil, errors.New("Associated data with sId is invalid")
+	}
+
+	return &SessionData{UserId: uint32(userIdConverted)}, nil
 }
