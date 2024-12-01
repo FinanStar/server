@@ -34,6 +34,10 @@ func generateSecureId() (string, error) {
 	return hex.EncodeToString(randomBytes), nil
 }
 
+func NewDragonflySessionManager(client *redis.Client) *DragonflySessionManager {
+	return &DragonflySessionManager{client}
+}
+
 type CreateDragonflyClientOptions struct {
 	Host       string
 	Port       uint32
@@ -42,9 +46,9 @@ type CreateDragonflyClientOptions struct {
 	Password   string
 }
 
-func CreateDragonflySessionManager(
+func CreateDragonflyClient(
 	options *CreateDragonflyClientOptions,
-) *DragonflySessionManager {
+) *redis.Client {
 	client := redis.NewClient(&redis.Options{
 		Username: options.Username,
 		Password: options.Password,
@@ -56,7 +60,7 @@ func CreateDragonflySessionManager(
 		panic("Failed to create Redis client, check that options is valid")
 	}
 
-	return &DragonflySessionManager{client: client}
+	return client
 }
 
 type DragonflySessionManager struct {
@@ -159,7 +163,7 @@ func (dsm *DragonflySessionManager) RenewalSession(
 		return err
 	}
 
-	if success {
+	if !success {
 		return errors.New("Provided session is not existing")
 	}
 
