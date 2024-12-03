@@ -82,7 +82,9 @@ func (dsm *DragonflySessionManager) CreateSession(
 			return "", err
 		}
 
-		if setCmd.Err() != redis.Nil {
+		setCmdSuccessful, err := setCmd.Result()
+
+		if setCmdSuccessful {
 			return sId, nil
 		}
 	}
