@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"finanstar/server/crypto"
 	"fmt"
 	"strconv"
 	"testing"
@@ -32,6 +33,12 @@ func expectError(t *testing.T, gotErr error, expectedErr error) {
 func expectNoError(t *testing.T, err error) {
 	if err != nil {
 		t.Errorf(`Expected no error, but got "%s"`, err.Error())
+	}
+}
+
+func checkMockExpectationsWereMet(t *testing.T, mock redismock.ClientMock) {
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Mock expectations were not met, error = %s", err.Error())
 	}
 }
 
@@ -66,8 +73,10 @@ func TestCreateSession(t *testing.T) {
 	)
 
 	if err != nil || len(sId) == 0 {
-		t.Errorf("Expected sId, but got error or nil (%v)", err)
+		t.Errorf("Expected sId, but got error or nil (%s)", err.Error())
 	}
+
+	checkMockExpectationsWereMet(t, mock)
 }
 
 func TestDeleteSession(t *testing.T) {
@@ -76,18 +85,20 @@ func TestDeleteSession(t *testing.T) {
 	dsm := NewDragonflySessionManager(client)
 
 	userId := uint32(1337)
-	sId, err := generateSecureId()
+	sId, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
 
 	expectNoError(t, err)
 
 	testVariants := []struct {
-		title         string
-		getSuccessful bool
-		delResult     int
-		sRemResult    int
+		title          string
+		getSuccessful  bool
+		delResult      int
+		sRemResult     int
+		sMembersResult int
 	}{
-		{"Defined session", true, 1, 1},
-		{"Undefined session", false, 0, 0},
+		{"Defined second session", true, 1, 1, 1},
+		{"Undefined session", false, 0, 0, 0},
+		{"Defined last session", true, 1, 1, 0},
 	}
 
 	for _, tt := range testVariants {
@@ -98,21 +109,38 @@ func TestDeleteSession(t *testing.T) {
 
 			if tt.getSuccessful {
 				getExpect.SetVal(strconv.Itoa(int(userId)))
+				knownSessionSet := fmt.Sprintf(
+					`%s:%d`,
+					KNOWN_SESSIONS_SET_KEY_PREFIX,
+					userId,
+				)
+
+				mock.ExpectTxPipeline()
+				mock.
+					ExpectDel(fmt.Sprintf(`%s:%s`, SESSION_KEY_PREFIX, sId)).
+					SetVal(int64(tt.delResult))
+				mock.
+					ExpectSRem(knownSessionSet, sId).
+					SetVal(int64(tt.sRemResult))
+				mock.ExpectTxPipelineExec().SetVal(make([]interface{}, 0))
+
+				sIds := make([]string, tt.sMembersResult)
+
+				for index := range sIds {
+					id, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
+
+					expectNoError(t, err)
+					sIds[index] = id
+				}
+
+				mock.ExpectSMembers(knownSessionSet).SetVal(sIds)
+
+				if tt.sMembersResult == 0 {
+					mock.ExpectDel(knownSessionSet).SetVal(1)
+				}
 			} else {
 				getExpect.RedisNil()
 			}
-
-			mock.ExpectTxPipeline()
-			mock.
-				ExpectDel(fmt.Sprintf(`%s:%s`, SESSION_KEY_PREFIX, sId)).
-				SetVal(int64(tt.delResult))
-			mock.
-				ExpectSRem(
-					fmt.Sprintf(`%s:%d`, KNOWN_SESSIONS_SET_KEY_PREFIX, userId),
-					sId,
-				).
-				SetVal(int64(tt.sRemResult))
-			mock.ExpectTxPipelineExec().SetVal(make([]interface{}, 0))
 
 			err = dsm.DeleteSession(context.Background(), sId)
 
@@ -121,8 +149,10 @@ func TestDeleteSession(t *testing.T) {
 					t.Errorf("Expected run without error, but got error = %v", err)
 				}
 			} else {
-				expectError(t, err, errors.New("There is no session with provided sId"))
+				expectError(t, err, errors.New(SESSION_NOT_FOUND_ERROR))
 			}
+
+			checkMockExpectationsWereMet(t, mock)
 		}))
 	}
 }
@@ -132,7 +162,7 @@ func TestRenewalSession(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	dsm := NewDragonflySessionManager(client)
 
-	sId, err := generateSecureId()
+	sId, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
 
 	expectNoError(t, err)
 
@@ -158,8 +188,10 @@ func TestRenewalSession(t *testing.T) {
 			if tt.result {
 				expectNoError(t, err)
 			} else {
-				expectError(t, err, errors.New("Provided session is not existing"))
+				expectError(t, err, errors.New(SESSION_NOT_FOUND_ERROR))
 			}
+
+			checkMockExpectationsWereMet(t, mock)
 		})
 	}
 }
@@ -170,7 +202,7 @@ func TestGetSessionData(t *testing.T) {
 	dsm := NewDragonflySessionManager(client)
 
 	userId := 1337
-	sId, err := generateSecureId()
+	sId, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
 
 	expectNoError(t, err)
 
@@ -184,7 +216,7 @@ func TestGetSessionData(t *testing.T) {
 		{
 			"Defined invalid session data",
 			"l33t",
-			errors.New("Associated data with sId is invalid"),
+			errors.New(SESSION_DATA_INVALID_ERROR),
 		},
 	}
 
@@ -204,10 +236,10 @@ func TestGetSessionData(t *testing.T) {
 
 			if tt.resultError != nil {
 				if tt.resultError == redis.Nil {
-					expectError(t, err, errors.New("There is no session with provided sId"))
+					expectError(t, err, errors.New(SESSION_NOT_FOUND_ERROR))
 				}
 
-				if tt.resultError.Error() == "Associated data with sId is invalid" {
+				if tt.resultError.Error() == SESSION_DATA_INVALID_ERROR {
 					expectError(t, err, tt.resultError)
 				}
 			} else {
@@ -219,6 +251,8 @@ func TestGetSessionData(t *testing.T) {
 					)
 				}
 			}
+
+			checkMockExpectationsWereMet(t, mock)
 		})
 	}
 }
@@ -228,9 +262,9 @@ func TestResetSession(t *testing.T) {
 	client, mock := redismock.NewClientMock()
 	dsm := NewDragonflySessionManager(client)
 
-	sId1, err := generateSecureId()
+	sId1, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
 	expectNoError(t, err)
-	sId2, err := generateSecureId()
+	sId2, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
 	expectNoError(t, err)
 
 	testVariants := []struct {
@@ -259,6 +293,7 @@ func TestResetSession(t *testing.T) {
 			err := dsm.ResetSessions(context.Background(), tt.userId)
 
 			expectNoError(t, err)
+			checkMockExpectationsWereMet(t, mock)
 		})
 	}
 }
