@@ -2,12 +2,10 @@ package session
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
+	"finanstar/server/crypto"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -17,22 +15,7 @@ import (
 const (
 	KNOWN_SESSIONS_SET_KEY_PREFIX = "known-sessions-set"
 	SESSION_KEY_PREFIX            = "session"
-	SESSION_TTL                   = time.Duration(14*24) * time.Hour
 )
-
-func generateSecureId() (string, error) {
-	randomBytes := make([]byte, 16)
-	_, err := rand.Read(randomBytes)
-
-	if err != nil {
-		return "", fmt.Errorf(
-			"Generate secure id failed with error: %v",
-			err.Error(),
-		)
-	}
-
-	return hex.EncodeToString(randomBytes), nil
-}
 
 func NewDragonflySessionManager(client *redis.Client) *DragonflySessionManager {
 	return &DragonflySessionManager{client}
@@ -57,7 +40,7 @@ func CreateDragonflyClient(
 	})
 
 	if client == nil {
-		panic("Failed to create Redis client, check that options is valid")
+		panic("Failed to create Redis client, check options validity")
 	}
 
 	return client
@@ -71,14 +54,14 @@ func (dsm *DragonflySessionManager) CreateSession(
 	ctx context.Context,
 	sData *SessionData,
 ) (string, error) {
-	sId, err := generateSecureId()
-
-	if err != nil {
-		return "", err
-	}
-
 	// Ensuring that sId will saved only if it is unique
 	for {
+		sId, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
+
+		if err != nil {
+			return "", err
+		}
+
 		tx := dsm.client.TxPipeline()
 
 		setCmd := tx.SetNX(
@@ -93,24 +76,16 @@ func (dsm *DragonflySessionManager) CreateSession(
 			sId,
 		)
 
-		_, err := tx.Exec(ctx)
+		_, err = tx.Exec(ctx)
 
 		if err != nil {
 			return "", err
 		}
 
 		if setCmd.Err() != redis.Nil {
-			break
-		}
-
-		sId, err = generateSecureId()
-
-		if err != nil {
-			return "", err
+			return sId, nil
 		}
 	}
-
-	return sId, nil
 }
 
 func (dsm *DragonflySessionManager) DeleteSession(
@@ -124,27 +99,44 @@ func (dsm *DragonflySessionManager) DeleteSession(
 	).Result()
 
 	if err == redis.Nil {
-		return errors.New("There is no session with provided sId")
+		return errors.New(SESSION_NOT_FOUND_ERROR)
 	}
 
 	if err != nil {
 		return err
 	}
 
+	knownSessionsSetKey := fmt.Sprintf(
+		"%s:%s",
+		KNOWN_SESSIONS_SET_KEY_PREFIX,
+		userId,
+	)
 	pipe := dsm.client.TxPipeline()
 
 	pipe.Del(ctx, sessionKey)
-	pipe.SRem(
-		ctx,
-		fmt.Sprintf("%s:%s", KNOWN_SESSIONS_SET_KEY_PREFIX, userId),
-		sId,
-	)
+	pipe.SRem(ctx, knownSessionsSetKey, sId)
 
 	_, err = pipe.Exec(ctx)
 
 	if err != nil {
 		return err
 	}
+
+	// #region Prevent memory leak in storage
+	sIds, err := dsm.client.SMembers(ctx, knownSessionsSetKey).Result()
+
+	if err != nil {
+		return err
+	}
+
+	if len(sIds) == 0 {
+		err = dsm.client.Del(ctx, knownSessionsSetKey).Err()
+
+		if err != nil {
+			return err
+		}
+	}
+	// #endregion
 
 	return nil
 }
@@ -164,7 +156,7 @@ func (dsm *DragonflySessionManager) RenewalSession(
 	}
 
 	if !success {
-		return errors.New("Provided session is not existing")
+		return errors.New(SESSION_NOT_FOUND_ERROR)
 	}
 
 	return nil
@@ -180,7 +172,7 @@ func (dsm *DragonflySessionManager) GetSessionData(
 	).Result()
 
 	if err == redis.Nil {
-		return nil, errors.New("There is no session with provided sId")
+		return nil, errors.New(SESSION_NOT_FOUND_ERROR)
 	}
 
 	if err != nil {
@@ -190,7 +182,7 @@ func (dsm *DragonflySessionManager) GetSessionData(
 	userIdConverted, err := strconv.ParseInt(userId, 10, 32)
 
 	if err != nil {
-		return nil, errors.New("Associated data with sId is invalid")
+		return nil, errors.New(SESSION_DATA_INVALID_ERROR)
 	}
 
 	return &SessionData{UserId: uint32(userIdConverted)}, nil

@@ -1,6 +1,19 @@
 package session
 
-import "context"
+import (
+	"context"
+	"time"
+)
+
+const (
+	SESSION_TTL       = time.Duration(14*24) * time.Hour
+	SESSION_ID_LENGTH = 16
+)
+
+const (
+	SESSION_NOT_FOUND_ERROR    = "There is no session with provided sId"
+	SESSION_DATA_INVALID_ERROR = "Associated data with sId is invalid"
+)
 
 type SessionManager interface {
 	CreateSession(ctx context.Context, sData *SessionData) (string, error)
