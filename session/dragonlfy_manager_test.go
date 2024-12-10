@@ -10,31 +10,8 @@ import (
 
 	"github.com/go-redis/redismock/v9"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
-
-func expectError(t *testing.T, gotErr error, expectedErr error) {
-	if gotErr == nil {
-		t.Errorf(`Expected error "%s", but got nothing`, expectedErr)
-	}
-
-	if expectedErr == nil {
-		t.Error("Expected error is not provided")
-	}
-
-	if gotErr.Error() != expectedErr.Error() {
-		t.Errorf(
-			`Expected error "%s", but got "%s"`,
-			expectedErr,
-			gotErr.Error(),
-		)
-	}
-}
-
-func expectNoError(t *testing.T, err error) {
-	if err != nil {
-		t.Errorf(`Expected no error, but got "%s"`, err.Error())
-	}
-}
 
 func checkMockExpectationsWereMet(t *testing.T, mock redismock.ClientMock) {
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -46,6 +23,7 @@ func TestCreateSession(t *testing.T) {
 	t.Parallel()
 	client, mock := redismock.NewClientMock()
 	dsm := NewDragonflySessionManager(client)
+	require := require.New(t)
 
 	userId := uint32(1337)
 
@@ -72,9 +50,14 @@ func TestCreateSession(t *testing.T) {
 		&SessionData{UserId: userId},
 	)
 
-	if err != nil || len(sId) == 0 {
-		t.Errorf("Expected sId, but got error or nil (%s)", err.Error())
-	}
+	require.Nilf(err, "Expected sId, but got error")
+	require.Equalf(
+		SESSION_ID_LENGTH*2,
+		len(sId),
+		"Expected sId to be %d length, but got %d",
+		SESSION_ID_LENGTH*2,
+		len(sId),
+	)
 
 	checkMockExpectationsWereMet(t, mock)
 }
@@ -83,11 +66,12 @@ func TestDeleteSession(t *testing.T) {
 	t.Parallel()
 	client, mock := redismock.NewClientMock()
 	dsm := NewDragonflySessionManager(client)
+	require := require.New(t)
 
 	userId := uint32(1337)
 	sId, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
 
-	expectNoError(t, err)
+	require.Nil(err)
 
 	testVariants := []struct {
 		title          string
@@ -129,7 +113,7 @@ func TestDeleteSession(t *testing.T) {
 				for index := range sIds {
 					id, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
 
-					expectNoError(t, err)
+					require.Nil(err)
 					sIds[index] = id
 				}
 
@@ -145,11 +129,13 @@ func TestDeleteSession(t *testing.T) {
 			err = dsm.DeleteSession(context.Background(), sId)
 
 			if tt.getSuccessful {
-				if err != nil {
-					t.Errorf("Expected run without error, but got error = %v", err)
-				}
+				require.Nilf(
+					err,
+					"Expected run without error, but got %v",
+					err,
+				)
 			} else {
-				expectError(t, err, errors.New(SESSION_NOT_FOUND_ERROR))
+				require.EqualError(err, SESSION_NOT_FOUND_ERROR)
 			}
 
 			checkMockExpectationsWereMet(t, mock)
@@ -161,10 +147,11 @@ func TestRenewalSession(t *testing.T) {
 	t.Parallel()
 	client, mock := redismock.NewClientMock()
 	dsm := NewDragonflySessionManager(client)
+	require := require.New(t)
 
 	sId, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
 
-	expectNoError(t, err)
+	require.Nil(err)
 
 	testVariants := []struct {
 		title  string
@@ -186,9 +173,9 @@ func TestRenewalSession(t *testing.T) {
 			err = dsm.RenewalSession(context.Background(), sId)
 
 			if tt.result {
-				expectNoError(t, err)
+				require.Nil(err)
 			} else {
-				expectError(t, err, errors.New(SESSION_NOT_FOUND_ERROR))
+				require.EqualError(err, SESSION_NOT_FOUND_ERROR)
 			}
 
 			checkMockExpectationsWereMet(t, mock)
@@ -200,11 +187,12 @@ func TestGetSessionData(t *testing.T) {
 	t.Parallel()
 	client, mock := redismock.NewClientMock()
 	dsm := NewDragonflySessionManager(client)
+	require := require.New(t)
 
 	userId := 1337
 	sId, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
 
-	expectNoError(t, err)
+	require.Nil(err)
 
 	testVariants := []struct {
 		title        string
@@ -236,20 +224,20 @@ func TestGetSessionData(t *testing.T) {
 
 			if tt.resultError != nil {
 				if tt.resultError == redis.Nil {
-					expectError(t, err, errors.New(SESSION_NOT_FOUND_ERROR))
+					require.EqualError(err, SESSION_NOT_FOUND_ERROR)
 				}
 
 				if tt.resultError.Error() == SESSION_DATA_INVALID_ERROR {
-					expectError(t, err, tt.resultError)
+					require.EqualError(err, tt.resultError.Error())
 				}
 			} else {
-				if sData.UserId != uint32(userId) {
-					t.Errorf(
-						"Expected valid session data %d, but got %d",
-						userId,
-						sData.UserId,
-					)
-				}
+				require.Equalf(
+					uint32(userId),
+					sData.UserId,
+					"Expected valid session data %d, but got %d",
+					userId,
+					sData.UserId,
+				)
 			}
 
 			checkMockExpectationsWereMet(t, mock)
@@ -261,11 +249,12 @@ func TestResetSession(t *testing.T) {
 	t.Parallel()
 	client, mock := redismock.NewClientMock()
 	dsm := NewDragonflySessionManager(client)
+	require := require.New(t)
 
 	sId1, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
-	expectNoError(t, err)
+	require.Nil(err)
 	sId2, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
-	expectNoError(t, err)
+	require.Nil(err)
 
 	testVariants := []struct {
 		title  string
@@ -292,7 +281,7 @@ func TestResetSession(t *testing.T) {
 
 			err := dsm.ResetSessions(context.Background(), tt.userId)
 
-			expectNoError(t, err)
+			require.Nil(err)
 			checkMockExpectationsWereMet(t, mock)
 		})
 	}
