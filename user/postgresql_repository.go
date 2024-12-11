@@ -68,7 +68,7 @@ func (pur *PostgresqlUserRepository) Update(
 			updateParams,
 			fmt.Sprintf(`login = $%d`, len(queryArgs)+1),
 		)
-		queryArgs = append(queryArgs, dto.Login)
+		queryArgs = append(queryArgs, *dto.Login)
 	}
 
 	if dto.Password != nil {
@@ -76,7 +76,7 @@ func (pur *PostgresqlUserRepository) Update(
 			updateParams,
 			fmt.Sprintf(`password = $%d`, len(queryArgs)+1),
 		)
-		queryArgs = append(queryArgs, dto.Password)
+		queryArgs = append(queryArgs, *dto.Password)
 	}
 
 	if len(updateParams) == 0 {
