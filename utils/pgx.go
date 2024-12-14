@@ -6,6 +6,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const (
+	DUPLICATE_VALUE_ERROR = `duplicate key value violates unique constraint`
+)
+
 type PgxPoolIface interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row

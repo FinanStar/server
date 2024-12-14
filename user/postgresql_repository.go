@@ -104,3 +104,37 @@ func (self *postgresqlUserRepository) Update(
 
 	return &user, nil
 }
+
+func (self *postgresqlUserRepository) Create(
+	ctx context.Context,
+	dto createUserRepositoryDto,
+) (*userEntity, error) {
+	user := userEntity{
+		Id:       0,
+		Login:    ``,
+		Password: ``,
+	}
+
+	err := self.db.
+		QueryRow(
+			ctx,
+			`
+				INSERT INTO users (login, password)
+				VALUES ($1, $2)
+				RETURNING id, login, password;
+			`,
+			dto.Login,
+			dto.Password,
+		).
+		Scan(&user.Id, &user.Login, &user.Password)
+
+	if err != nil {
+		if strings.Contains(err.Error(), utils.DUPLICATE_VALUE_ERROR) {
+			return nil, errors.New(USER_ALREADY_EXISTS_ERROR)
+		}
+
+		return nil, err
+	}
+
+	return &user, nil
+}
