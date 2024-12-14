@@ -8,17 +8,17 @@ const (
 )
 
 type UserRepository interface {
-	GetByLogin(ctx context.Context, login string) (*UserEntity, error)
-	Update(ctx context.Context, id uint32, dto UpdateUserDto) (*UserEntity, error)
+	GetByLogin(ctx context.Context, login string) (*userEntity, error)
+	Update(ctx context.Context, id uint32, dto updateUserRepositoryDto) (*userEntity, error)
 }
 
-type UserEntity struct {
+type userEntity struct {
 	Id       uint32
 	Login    string
 	Password string
 }
 
-type UpdateUserDto struct {
+type updateUserRepositoryDto struct {
 	Login    *string
 	Password *string
 }

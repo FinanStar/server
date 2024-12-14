@@ -11,25 +11,25 @@ import (
 	"finanstar/server/utils"
 )
 
-func NewPostgresqlUserRepository(db utils.PgxPoolIface) PostgresqlUserRepository {
-	return PostgresqlUserRepository{db}
+func NewPostgresqlUserRepository(db utils.PgxPoolIface) postgresqlUserRepository {
+	return postgresqlUserRepository{db}
 }
 
-type PostgresqlUserRepository struct {
+type postgresqlUserRepository struct {
 	db utils.PgxPoolIface
 }
 
-func (pur *PostgresqlUserRepository) GetByLogin(
+func (self *postgresqlUserRepository) GetByLogin(
 	ctx context.Context,
 	login string,
-) (*UserEntity, error) {
-	user := UserEntity{
+) (*userEntity, error) {
+	user := userEntity{
 		Id:       0,
 		Login:    ``,
 		Password: ``,
 	}
 
-	err := pur.db.
+	err := self.db.
 		QueryRow(
 			ctx,
 			`SELECT id, login, password FROM users WHERE login = $1;`,
@@ -48,12 +48,12 @@ func (pur *PostgresqlUserRepository) GetByLogin(
 	return &user, nil
 }
 
-func (pur *PostgresqlUserRepository) Update(
+func (self *postgresqlUserRepository) Update(
 	ctx context.Context,
 	id uint32,
-	dto UpdateUserDto,
-) (*UserEntity, error) {
-	user := UserEntity{
+	dto updateUserRepositoryDto,
+) (*userEntity, error) {
+	user := userEntity{
 		Id:       id,
 		Login:    ``,
 		Password: ``,
@@ -83,7 +83,7 @@ func (pur *PostgresqlUserRepository) Update(
 		return nil, errors.New(THERE_IS_NO_UPDATE_PARAMS_ERROR)
 	}
 
-	err := pur.db.
+	err := self.db.
 		QueryRow(
 			ctx,
 			fmt.Sprintf(

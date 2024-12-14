@@ -15,7 +15,7 @@ func TestGetByLogin(t *testing.T) {
 	require := require.New(t)
 
 	require.Nil(err)
-	pur := PostgresqlUserRepository{db: db}
+	pur := postgresqlUserRepository{db: db}
 	expectedSql := `SELECT id, login, password FROM users WHERE login = \$1;`
 
 	t.Run(`ReturnsUser`, func(tt *testing.T) {
@@ -77,10 +77,10 @@ func TestUpdate(t *testing.T) {
 	require := require.New(t)
 
 	require.Nil(err)
-	pur := PostgresqlUserRepository{db: db}
+	pur := postgresqlUserRepository{db: db}
 
 	t.Run(`UpdateAllFields`, func(tt *testing.T) {
-		expectedUser := UserEntity{
+		expectedUser := userEntity{
 			Id:       1,
 			Login:    `test@example.com`,
 			Password: `hashed_password`,
@@ -98,7 +98,7 @@ func TestUpdate(t *testing.T) {
 		user, err := pur.Update(
 			context.Background(),
 			expectedUser.Id,
-			UpdateUserDto{
+			updateUserRepositoryDto{
 				Login:    &expectedUser.Login,
 				Password: &expectedUser.Password,
 			},
@@ -112,14 +112,14 @@ func TestUpdate(t *testing.T) {
 	})
 
 	t.Run(`ReturnsNoUpdateParamsError`, func(tt *testing.T) {
-		user, err := pur.Update(context.Background(), uint32(1), UpdateUserDto{})
+		user, err := pur.Update(context.Background(), uint32(1), updateUserRepositoryDto{})
 
 		require.Nil(user)
 		require.EqualError(err, THERE_IS_NO_UPDATE_PARAMS_ERROR)
 	})
 
 	t.Run(`UpdateOnlyLoginField`, func(tt *testing.T) {
-		expectedUser := UserEntity{
+		expectedUser := userEntity{
 			Id:       1,
 			Login:    `test@example.com`,
 			Password: `hashed_password`,
@@ -137,7 +137,7 @@ func TestUpdate(t *testing.T) {
 		user, err := pur.Update(
 			context.Background(),
 			expectedUser.Id,
-			UpdateUserDto{
+			updateUserRepositoryDto{
 				Login: &expectedUser.Login,
 			},
 		)
@@ -150,7 +150,7 @@ func TestUpdate(t *testing.T) {
 	})
 
 	t.Run(`UpdateOnlyPasswordField`, func(tt *testing.T) {
-		expectedUser := UserEntity{
+		expectedUser := userEntity{
 			Id:       1,
 			Login:    `test@example.com`,
 			Password: `hashed_password`,
@@ -168,7 +168,7 @@ func TestUpdate(t *testing.T) {
 		user, err := pur.Update(
 			context.Background(),
 			expectedUser.Id,
-			UpdateUserDto{
+			updateUserRepositoryDto{
 				Password: &expectedUser.Password,
 			},
 		)
@@ -181,7 +181,7 @@ func TestUpdate(t *testing.T) {
 	})
 
 	t.Run(`UpdateNonExistingUser`, func(tt *testing.T) {
-		expectedUser := UserEntity{
+		expectedUser := userEntity{
 			Id:       1,
 			Login:    `test@example.com`,
 			Password: `hashed_password`,
@@ -197,7 +197,7 @@ func TestUpdate(t *testing.T) {
 		user, err := pur.Update(
 			context.Background(),
 			expectedUser.Id,
-			UpdateUserDto{
+			updateUserRepositoryDto{
 				Login:    &expectedUser.Login,
 				Password: &expectedUser.Password,
 			},
