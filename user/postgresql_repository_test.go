@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	utils_pgx "finanstar/server/utils"
 	"testing"
 
 	"github.com/pashagolub/pgxmock/v4"
@@ -67,7 +68,10 @@ func TestGetByLogin(t *testing.T) {
 		testLogin := `test@example.com`
 		errorMessage := `UnknownError`
 
-		db.ExpectQuery(expectedSql).WithArgs(testLogin).WillReturnError(errors.New(errorMessage))
+		db.
+			ExpectQuery(expectedSql).
+			WithArgs(testLogin).
+			WillReturnError(errors.New(errorMessage))
 
 		user, err := pur.GetByLogin(context.Background(), testLogin)
 
@@ -117,7 +121,11 @@ func TestUpdate(t *testing.T) {
 	})
 
 	t.Run(`ReturnsNoUpdateParamsError`, func(tt *testing.T) {
-		user, err := pur.Update(context.Background(), uint32(1), updateUserRepositoryDto{})
+		user, err := pur.Update(
+			context.Background(),
+			uint32(1),
+			updateUserRepositoryDto{},
+		)
 
 		require.Nil(user)
 		require.EqualError(err, THERE_IS_NO_UPDATE_PARAMS_ERROR)
@@ -131,7 +139,12 @@ func TestUpdate(t *testing.T) {
 		}
 
 		rows := db.NewRows([]string{"login", "password"})
-		expectedSql := `UPDATE users WHERE id = \$1 SET login = \$2 RETURNING login, password;`
+		expectedSql := `
+			UPDATE users
+			WHERE id = \$1
+			SET login = \$2
+			RETURNING login, password;
+		`
 
 		rows.AddRow(expectedUser.Login, expectedUser.Password)
 
@@ -162,7 +175,12 @@ func TestUpdate(t *testing.T) {
 		}
 
 		rows := db.NewRows([]string{"login", "password"})
-		expectedSql := `UPDATE users WHERE id = \$1 SET password = \$2 RETURNING login, password;`
+		expectedSql := `
+			UPDATE users
+			WHERE id = \$1
+			SET password = \$2
+			RETURNING login, password;
+		`
 
 		rows.AddRow(expectedUser.Login, expectedUser.Password)
 

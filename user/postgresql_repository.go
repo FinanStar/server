@@ -8,15 +8,15 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"finanstar/server/utils"
+	utils_pgx "finanstar/server/utils"
 )
 
-func NewPostgresqlUserRepository(db utils.PgxPoolIface) postgresqlUserRepository {
+func NewPostgresqlUserRepository(db utils_pgx.PgxPoolIface) postgresqlUserRepository {
 	return postgresqlUserRepository{db}
 }
 
 type postgresqlUserRepository struct {
-	db utils.PgxPoolIface
+	db utils_pgx.PgxPoolIface
 }
 
 func (self *postgresqlUserRepository) GetByLogin(
@@ -129,7 +129,7 @@ func (self *postgresqlUserRepository) Create(
 		Scan(&user.Id, &user.Login, &user.Password)
 
 	if err != nil {
-		if strings.Contains(err.Error(), utils.DUPLICATE_VALUE_ERROR) {
+		if strings.Contains(err.Error(), utils_pgx.DUPLICATE_VALUE_ERROR) {
 			return nil, errors.New(USER_ALREADY_EXISTS_ERROR)
 		}
 
