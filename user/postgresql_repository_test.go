@@ -235,3 +235,81 @@ func TestUpdate(t *testing.T) {
 		require.EqualError(err, USER_NOT_FOUND_ERROR)
 	})
 }
+
+func TestCreate(t *testing.T) {
+	t.Parallel()
+	db, err := pgxmock.NewPool()
+	require := require.New(t)
+
+	require.Nil(err)
+	pur := postgresqlUserRepository{db: db}
+	expectedSql := `
+		INSERT INTO users \(login, password\)
+		VALUES \(\$1, \$2\)
+		RETURNING id, login, password;
+	`
+
+	t.Run(`CreateNewUser`, func(tt *testing.T) {
+		expectedUser := userEntity{
+			Id:       1,
+			Login:    `test@example.com`,
+			Password: `hashed-password`,
+		}
+
+		rows := db.NewRows([]string{`id`, `login`, `password`})
+
+		rows.AddRow(expectedUser.Id, expectedUser.Login, expectedUser.Password)
+
+		db.
+			ExpectQuery(expectedSql).
+			WithArgs(expectedUser.Login, expectedUser.Password).
+			WillReturnRows(rows)
+
+		user, err := pur.Create(
+			context.Background(),
+			createUserRepositoryDto{
+				Login:    expectedUser.Login,
+				Password: expectedUser.Password,
+			},
+		)
+
+		require.Nil(err)
+		require.Equal(user.Id, expectedUser.Id)
+		require.Equal(user.Login, expectedUser.Login)
+		require.Equal(user.Password, expectedUser.Password)
+	})
+
+	t.Run(`CreateDuplicateUser`, func(tt *testing.T) {
+		createUserDto := createUserRepositoryDto{
+			Login:    `test@example.com`,
+			Password: `hashed-password`,
+		}
+
+		db.
+			ExpectQuery(expectedSql).
+			WithArgs(createUserDto.Login, createUserDto.Password).
+			WillReturnError(errors.New(utils_pgx.DUPLICATE_VALUE_ERROR))
+
+		user, err := pur.Create(context.Background(), createUserDto)
+
+		require.Nil(user)
+		require.EqualError(err, USER_ALREADY_EXISTS_ERROR)
+	})
+
+	t.Run(`ReturnsUnknownError`, func(tt *testing.T) {
+		createUserDto := createUserRepositoryDto{
+			Login:    `test@example.com`,
+			Password: `hashed-password`,
+		}
+
+		db.
+			ExpectQuery(expectedSql).
+			WithArgs(createUserDto.Login, createUserDto.Password).
+			WillReturnError(errors.New(`Unknown Error`))
+
+		user, err := pur.Create(context.Background(), createUserDto)
+
+		require.Nil(user)
+		require.EqualError(err, `Unknown Error`)
+	})
+}
