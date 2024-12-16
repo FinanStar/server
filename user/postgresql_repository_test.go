@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetByLogin(t *testing.T) {
+func TestRepositoryGetByLogin(t *testing.T) {
 	t.Parallel()
 	db, err := pgxmock.NewPool()
 	require := require.New(t)
@@ -80,7 +80,7 @@ func TestGetByLogin(t *testing.T) {
 	})
 }
 
-func TestUpdate(t *testing.T) {
+func TestRepositoryUpdate(t *testing.T) {
 	t.Parallel()
 	db, err := pgxmock.NewPool()
 	require := require.New(t)
@@ -236,7 +236,7 @@ func TestUpdate(t *testing.T) {
 	})
 }
 
-func TestCreate(t *testing.T) {
+func TestRepositoryCreate(t *testing.T) {
 	t.Parallel()
 	db, err := pgxmock.NewPool()
 	require := require.New(t)
