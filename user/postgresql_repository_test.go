@@ -30,7 +30,12 @@ func TestGetByLogin(t *testing.T) {
 
 		require.Nil(err)
 		require.NotNilf(user, "Expected get user, but got nil")
-		require.Equalf(user.Id, uint32(1), "Expected get id = 1, but got %d", user.Id)
+		require.Equalf(
+			user.Id,
+			uint32(1),
+			"Expected get id = 1, but got %d",
+			user.Id,
+		)
 		require.Equalf(
 			user.Login,
 			testLogin,
@@ -188,7 +193,12 @@ func TestUpdate(t *testing.T) {
 		}
 
 		rows := db.NewRows([]string{"login", "password"})
-		expectedSql := `UPDATE users WHERE id = \$1 SET login = \$2,password = \$3 RETURNING login, password;`
+		expectedSql := `
+			UPDATE users
+			WHERE id = \$1
+			SET login = \$2,password = \$3
+			RETURNING login, password;
+		`
 
 		db.
 			ExpectQuery(expectedSql).
