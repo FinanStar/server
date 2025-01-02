@@ -4,7 +4,7 @@ import "context"
 
 const (
 	USER_NOT_FOUND_ERROR            = "User not found"
-	THERE_IS_NO_UPDATE_PARAMS_ERROR = "There is not update params"
+	THERE_IS_NO_UPDATE_PARAMS_ERROR = "There is no update params"
 	USER_ALREADY_EXISTS_ERROR       = "User already exists"
 )
 
