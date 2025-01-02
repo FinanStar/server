@@ -37,3 +37,11 @@ func TestComparePasswords(t *testing.T) {
 	require.Nil(err)
 	require.Equal(match, true)
 }
+
+func TestGenerateRandomString(t *testing.T) {
+	require := require.New(t)
+
+	randomString := GenerateRandomString(32)
+
+	require.Equal(32, len(randomString))
+}
