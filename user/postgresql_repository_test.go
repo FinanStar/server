@@ -10,306 +10,372 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type result struct {
+	user    *userEntity
+	dbError error
+	error   error
+}
+
 func TestRepositoryGetByLogin(t *testing.T) {
 	t.Parallel()
-	db, err := pgxmock.NewPool()
-	require := require.New(t)
 
-	require.Nil(err)
-	pur := postgresqlUserRepository{db: db}
 	expectedSql := `SELECT id, login, password FROM users WHERE login = \$1;`
+	testLogin := `test@example.com`
 
-	t.Run(`ReturnsUser`, func(tt *testing.T) {
-		testLogin := `test@example.com`
-		rows := db.NewRows([]string{`id`, `login`, `password`})
+	subtests := []struct {
+		name   string
+		result result
+	}{
+		{
+			name: `ReturnsUser`,
+			result: result{
+				user: &userEntity{
+					Id:       1,
+					Login:    testLogin,
+					Password: `hashed_password`,
+				},
+			},
+		},
+		{
+			name: `ReturnsUserNotFoundError`,
+			result: result{
+				error: errors.New(USER_NOT_FOUND_ERROR),
+			},
+		},
+		{
+			name: `ReturnsUnknownError`,
+			result: result{
+				dbError: errors.New(`UnknownError`),
+			},
+		},
+	}
 
-		rows.AddRow(uint32(1), testLogin, `hashed_password`)
+	for _, test := range subtests {
+		t.Run(test.name, func(tt *testing.T) {
+			require := require.New(t)
+			db, err := pgxmock.NewPool()
 
-		db.ExpectQuery(expectedSql).WithArgs(testLogin).WillReturnRows(rows)
+			require.Nil(err)
+			pur := postgresqlUserRepository{db: db}
 
-		user, err := pur.GetByLogin(context.Background(), testLogin)
+			rows := db.NewRows([]string{`id`, `login`, `password`})
+			resultUser := test.result.user
 
-		require.Nil(err)
-		require.NotNilf(user, "Expected get user, but got nil")
-		require.Equalf(
-			user.Id,
-			uint32(1),
-			"Expected get id = 1, but got %d",
-			user.Id,
-		)
-		require.Equalf(
-			user.Login,
-			testLogin,
-			"Expected get login = '%s', but got '%s'",
-			testLogin,
-			user.Login,
-		)
-		require.Equalf(
-			user.Password,
-			`hashed_password`,
-			"Expected get password = 'hashed_password', but got '%s'",
-			user.Password,
-		)
-	})
+			if resultUser != nil {
+				rows.AddRow(resultUser.Id, resultUser.Login, resultUser.Password)
+			}
 
-	t.Run(`ReturnsUserNotFoundError`, func(tt *testing.T) {
-		testLogin := `test@example.com`
-		rows := db.NewRows([]string{})
+			query := db.ExpectQuery(expectedSql).WithArgs(testLogin)
 
-		db.ExpectQuery(expectedSql).WithArgs(testLogin).WillReturnRows(rows)
+			if test.result.dbError != nil {
+				query.WillReturnError(test.result.dbError)
+			} else {
+				query.WillReturnRows(rows)
+			}
 
-		user, err := pur.GetByLogin(context.Background(), testLogin)
+			user, err := pur.GetByLogin(context.Background(), testLogin)
 
-		require.Nil(user)
-		require.EqualError(err, USER_NOT_FOUND_ERROR)
-	})
+			if resultUser != nil {
+				require.Nil(err)
 
-	t.Run(`ReturnsUnknownError`, func(tt *testing.T) {
-		testLogin := `test@example.com`
-		errorMessage := `UnknownError`
+				require.NotNil(user)
+				require.Equal(resultUser.Id, user.Id)
+				require.Equal(resultUser.Login, user.Login)
+				require.Equal(resultUser.Password, user.Password)
+			} else {
+				require.Nil(user)
 
-		db.
-			ExpectQuery(expectedSql).
-			WithArgs(testLogin).
-			WillReturnError(errors.New(errorMessage))
+				require.NotNil(err)
 
-		user, err := pur.GetByLogin(context.Background(), testLogin)
-
-		require.Nil(user)
-		require.EqualError(err, errorMessage)
-	})
+				if test.result.error != nil {
+					require.EqualError(err, test.result.error.Error())
+				} else {
+					require.EqualError(err, test.result.dbError.Error())
+				}
+			}
+		})
+	}
 }
 
 func TestRepositoryUpdate(t *testing.T) {
 	t.Parallel()
-	db, err := pgxmock.NewPool()
-	require := require.New(t)
 
-	require.Nil(err)
-	pur := postgresqlUserRepository{db: db}
+	type updateDto struct {
+		login    string
+		password string
+	}
 
-	t.Run(`UpdateAllFields`, func(tt *testing.T) {
-		expectedUser := userEntity{
-			Id:       1,
-			Login:    `test@example.com`,
-			Password: `hashed_password`,
-		}
-
-		rows := db.NewRows([]string{"login", "password"})
-		expectedSql := `UPDATE users WHERE id = \$1 SET login = \$2,password = \$3 RETURNING login, password;`
-
-		rows.AddRow(expectedUser.Login, expectedUser.Password)
-
-		db.
-			ExpectQuery(expectedSql).
-			WithArgs(expectedUser.Id, expectedUser.Login, expectedUser.Password).
-			WillReturnRows(rows)
-		user, err := pur.Update(
-			context.Background(),
-			expectedUser.Id,
-			updateUserRepositoryDto{
-				Login:    &expectedUser.Login,
-				Password: &expectedUser.Password,
+	subtests := []struct {
+		name        string
+		userId      uint32
+		expectedSql string
+		updateDto   updateDto
+		result      result
+	}{
+		{
+			name:   `UpdateAllFields`,
+			userId: 1,
+			expectedSql: `
+				UPDATE users
+				WHERE id = \$1
+				SET login = \$2,password = \$3
+				RETURNING login, password;
+			`,
+			updateDto: updateDto{
+				login:    `test@example.com`,
+				password: `hashed_password`,
 			},
-		)
-
-		require.Nil(err)
-		require.NotNilf(user, "Expected get user, but got nil")
-		require.Equal(expectedUser.Id, user.Id)
-		require.Equal(expectedUser.Login, user.Login)
-		require.Equal(expectedUser.Password, user.Password)
-	})
-
-	t.Run(`ReturnsNoUpdateParamsError`, func(tt *testing.T) {
-		user, err := pur.Update(
-			context.Background(),
-			uint32(1),
-			updateUserRepositoryDto{},
-		)
-
-		require.Nil(user)
-		require.EqualError(err, THERE_IS_NO_UPDATE_PARAMS_ERROR)
-	})
-
-	t.Run(`UpdateOnlyLoginField`, func(tt *testing.T) {
-		expectedUser := userEntity{
-			Id:       1,
-			Login:    `test@example.com`,
-			Password: `hashed_password`,
-		}
-
-		rows := db.NewRows([]string{"login", "password"})
-		expectedSql := `
-			UPDATE users
-			WHERE id = \$1
-			SET login = \$2
-			RETURNING login, password;
-		`
-
-		rows.AddRow(expectedUser.Login, expectedUser.Password)
-
-		db.
-			ExpectQuery(expectedSql).
-			WithArgs(expectedUser.Id, expectedUser.Login).
-			WillReturnRows(rows)
-		user, err := pur.Update(
-			context.Background(),
-			expectedUser.Id,
-			updateUserRepositoryDto{
-				Login: &expectedUser.Login,
+			result: result{
+				user: &userEntity{
+					Id:       1,
+					Login:    `test@example.com`,
+					Password: `hashed_password`,
+				},
 			},
-		)
-
-		require.Nil(err)
-		require.NotNilf(user, "Expected get user, but got nil")
-		require.Equal(expectedUser.Id, user.Id)
-		require.Equal(expectedUser.Login, user.Login)
-		require.Equal(expectedUser.Password, user.Password)
-	})
-
-	t.Run(`UpdateOnlyPasswordField`, func(tt *testing.T) {
-		expectedUser := userEntity{
-			Id:       1,
-			Login:    `test@example.com`,
-			Password: `hashed_password`,
-		}
-
-		rows := db.NewRows([]string{"login", "password"})
-		expectedSql := `
-			UPDATE users
-			WHERE id = \$1
-			SET password = \$2
-			RETURNING login, password;
-		`
-
-		rows.AddRow(expectedUser.Login, expectedUser.Password)
-
-		db.
-			ExpectQuery(expectedSql).
-			WithArgs(expectedUser.Id, expectedUser.Password).
-			WillReturnRows(rows)
-		user, err := pur.Update(
-			context.Background(),
-			expectedUser.Id,
-			updateUserRepositoryDto{
-				Password: &expectedUser.Password,
+		},
+		{
+			name:        `ReturnsNoUpdateParamsError`,
+			userId:      1,
+			expectedSql: ``,
+			updateDto: updateDto{
+				login:    ``,
+				password: ``,
 			},
-		)
-
-		require.Nil(err)
-		require.NotNilf(user, "Expected get user, but got nil")
-		require.Equal(expectedUser.Id, user.Id)
-		require.Equal(expectedUser.Login, user.Login)
-		require.Equal(expectedUser.Password, user.Password)
-	})
-
-	t.Run(`UpdateNonExistingUser`, func(tt *testing.T) {
-		expectedUser := userEntity{
-			Id:       1,
-			Login:    `test@example.com`,
-			Password: `hashed_password`,
-		}
-
-		rows := db.NewRows([]string{"login", "password"})
-		expectedSql := `
-			UPDATE users
-			WHERE id = \$1
-			SET login = \$2,password = \$3
-			RETURNING login, password;
-		`
-
-		db.
-			ExpectQuery(expectedSql).
-			WithArgs(expectedUser.Id, expectedUser.Login, expectedUser.Password).
-			WillReturnRows(rows)
-		user, err := pur.Update(
-			context.Background(),
-			expectedUser.Id,
-			updateUserRepositoryDto{
-				Login:    &expectedUser.Login,
-				Password: &expectedUser.Password,
+			result: result{
+				error: errors.New(THERE_IS_NO_UPDATE_PARAMS_ERROR),
 			},
-		)
+		},
+		{
+			name:   `UpdateOnlyLoginField`,
+			userId: 1,
+			expectedSql: `
+				UPDATE users
+				WHERE id = \$1
+				SET login = \$2
+				RETURNING login, password;
+			`,
+			updateDto: updateDto{
+				login:    `test@example.com`,
+				password: ``,
+			},
+			result: result{
+				user: &userEntity{
+					Id:       1,
+					Login:    `test@example.com`,
+					Password: `hashed_password`,
+				},
+			},
+		},
+		{
+			name:   `UpdateOnlyPasswordField`,
+			userId: 1,
+			expectedSql: `
+				UPDATE users
+				WHERE id = \$1
+				SET password = \$2
+				RETURNING login, password;
+			`,
+			updateDto: updateDto{
+				login:    ``,
+				password: `hashed_password`,
+			},
+			result: result{
+				user: &userEntity{
+					Id:       1,
+					Login:    `test@example.com`,
+					Password: `hashed_password`,
+				},
+			},
+		},
+		{
+			name:   `UpdateNonExistingUser`,
+			userId: 1,
+			expectedSql: `
+				UPDATE users
+				WHERE id = \$1
+				SET login = \$2,password = \$3
+				RETURNING login, password;
+			`,
+			updateDto: updateDto{
+				login:    `test@example.com`,
+				password: `hashed_password`,
+			},
+			result: result{
+				error: errors.New(USER_NOT_FOUND_ERROR),
+			},
+		},
+	}
 
-		require.Nil(user)
-		require.EqualError(err, USER_NOT_FOUND_ERROR)
-	})
+	for _, test := range subtests {
+		t.Run(test.name, func(tt *testing.T) {
+			require := require.New(t)
+			db, err := pgxmock.NewPool()
+			require.Nil(err)
+			pur := postgresqlUserRepository{db: db}
+
+			rows := db.NewRows([]string{`login`, `password`})
+			resultUser := test.result.user
+
+			if resultUser != nil {
+				rows.AddRow(resultUser.Login, resultUser.Password)
+			}
+
+			args := []any{test.userId}
+			dto := updateUserRepositoryDto{}
+
+			if len(test.updateDto.login) != 0 {
+				args = append(args, test.updateDto.login)
+				dto.Login = &test.updateDto.login
+			}
+
+			if len(test.updateDto.password) != 0 {
+				args = append(args, test.updateDto.password)
+				dto.Password = &test.updateDto.password
+			}
+
+			query := db.ExpectQuery(test.expectedSql).WithArgs(args...)
+
+			if test.result.dbError != nil {
+				query.WillReturnError(test.result.dbError)
+			} else {
+				query.WillReturnRows(rows)
+			}
+
+			user, err := pur.Update(
+				context.Background(),
+				test.userId,
+				dto,
+			)
+
+			if resultUser != nil {
+				require.Nil(err)
+
+				require.NotNil(user)
+				require.Equal(resultUser.Id, user.Id)
+				require.Equal(resultUser.Login, user.Login)
+				require.Equal(resultUser.Password, user.Password)
+			} else {
+				require.Nil(user)
+
+				require.NotNil(err)
+
+				if test.result.error != nil {
+					require.EqualError(err, test.result.error.Error())
+				} else {
+					require.EqualError(err, test.result.dbError.Error())
+				}
+			}
+		})
+	}
 }
 
 func TestRepositoryCreate(t *testing.T) {
 	t.Parallel()
-	db, err := pgxmock.NewPool()
-	require := require.New(t)
 
-	require.Nil(err)
-	pur := postgresqlUserRepository{db: db}
+	type createDto struct {
+		login    string
+		password string
+	}
+
+	subtests := []struct {
+		name      string
+		createDto createDto
+		result    result
+	}{
+		{
+			name: `CreateNewUser`,
+			createDto: createDto{
+				login:    `test@example.com`,
+				password: `hashed_password`,
+			},
+			result: result{
+				user: &userEntity{
+					Id:       1,
+					Login:    `test@example.com`,
+					Password: `hashed_password`,
+				},
+			},
+		},
+		{
+			name: `CreateDuplicateUser`,
+			createDto: createDto{
+				login:    `test@example.com`,
+				password: `hashed_password`,
+			},
+			result: result{
+				dbError: errors.New(utils_pgx.DUPLICATE_VALUE_ERROR),
+				error:   errors.New(USER_ALREADY_EXISTS_ERROR),
+			},
+		},
+		{
+			name: `ReturnsUnknownError`,
+			createDto: createDto{
+				login:    `test@example.com`,
+				password: `hashed_password`,
+			},
+			result: result{
+				dbError: errors.New(`Unknown Error`),
+			},
+		},
+	}
+
 	expectedSql := `
 		INSERT INTO users \(login, password\)
 		VALUES \(\$1, \$2\)
 		RETURNING id, login, password;
 	`
 
-	t.Run(`CreateNewUser`, func(tt *testing.T) {
-		expectedUser := userEntity{
-			Id:       1,
-			Login:    `test@example.com`,
-			Password: `hashed-password`,
-		}
+	for _, test := range subtests {
+		t.Run(test.name, func(tt *testing.T) {
+			db, err := pgxmock.NewPool()
+			require := require.New(t)
 
-		rows := db.NewRows([]string{`id`, `login`, `password`})
+			require.Nil(err)
+			pur := postgresqlUserRepository{db: db}
+			resultUser := test.result.user
+			rows := db.NewRows([]string{})
 
-		rows.AddRow(expectedUser.Id, expectedUser.Login, expectedUser.Password)
+			if resultUser != nil {
+				rows = db.NewRows([]string{`id`, `login`, `password`})
+				rows.AddRow(resultUser.Id, resultUser.Login, resultUser.Password)
+			}
 
-		db.
-			ExpectQuery(expectedSql).
-			WithArgs(expectedUser.Login, expectedUser.Password).
-			WillReturnRows(rows)
+			query := db.
+				ExpectQuery(expectedSql).
+				WithArgs(test.createDto.login, test.createDto.password)
 
-		user, err := pur.Create(
-			context.Background(),
-			createUserRepositoryDto{
-				Login:    expectedUser.Login,
-				Password: expectedUser.Password,
-			},
-		)
+			if test.result.dbError != nil {
+				query.WillReturnError(test.result.dbError)
+			} else {
+				query.WillReturnRows(rows)
+			}
 
-		require.Nil(err)
-		require.Equal(user.Id, expectedUser.Id)
-		require.Equal(user.Login, expectedUser.Login)
-		require.Equal(user.Password, expectedUser.Password)
-	})
+			user, err := pur.Create(
+				context.Background(),
+				createUserRepositoryDto{
+					Login:    test.createDto.login,
+					Password: test.createDto.password,
+				},
+			)
 
-	t.Run(`CreateDuplicateUser`, func(tt *testing.T) {
-		createUserDto := createUserRepositoryDto{
-			Login:    `test@example.com`,
-			Password: `hashed-password`,
-		}
+			if resultUser != nil {
+				require.Nil(err)
 
-		db.
-			ExpectQuery(expectedSql).
-			WithArgs(createUserDto.Login, createUserDto.Password).
-			WillReturnError(errors.New(utils_pgx.DUPLICATE_VALUE_ERROR))
+				require.NotNil(user)
+				require.Equal(resultUser.Id, user.Id)
+				require.Equal(resultUser.Login, user.Login)
+				require.Equal(resultUser.Password, user.Password)
+			} else {
+				require.Nil(user)
 
-		user, err := pur.Create(context.Background(), createUserDto)
+				require.NotNil(err)
 
-		require.Nil(user)
-		require.EqualError(err, USER_ALREADY_EXISTS_ERROR)
-	})
-
-	t.Run(`ReturnsUnknownError`, func(tt *testing.T) {
-		createUserDto := createUserRepositoryDto{
-			Login:    `test@example.com`,
-			Password: `hashed-password`,
-		}
-
-		db.
-			ExpectQuery(expectedSql).
-			WithArgs(createUserDto.Login, createUserDto.Password).
-			WillReturnError(errors.New(`Unknown Error`))
-
-		user, err := pur.Create(context.Background(), createUserDto)
-
-		require.Nil(user)
-		require.EqualError(err, `Unknown Error`)
-	})
+				if test.result.error != nil {
+					require.EqualError(err, test.result.error.Error())
+				} else {
+					require.EqualError(err, test.result.dbError.Error())
+				}
+			}
+		})
+	}
 }
