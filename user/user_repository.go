@@ -8,7 +8,7 @@ const (
 	USER_ALREADY_EXISTS_ERROR       = "User already exists"
 )
 
-type UserRepository interface {
+type userRepository interface {
 	GetByLogin(ctx context.Context, login string) (*userEntity, error)
 	Update(ctx context.Context, id uint32, dto updateUserRepositoryDto) (*userEntity, error)
 	Create(ctx context.Context, dto createUserRepositoryDto) (*userEntity, error)

@@ -2,39 +2,27 @@ package key_value_store
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
+type DragonflyBuilder struct {
+	client redis.Cmdable
+}
+
+func (self *DragonflyBuilder) Client(client redis.Cmdable) *DragonflyBuilder {
+	self.client = client
+
+	return self
+}
+
+func (self DragonflyBuilder) Build() KeyValueStore {
+	return dragonFlyClient{dragonflyClientCommands{client: self.client}}
+}
+
 type redisCmd[T interface{}] interface {
 	Result() (T, error)
-}
-
-type CreateDragonflyClientOptions struct {
-	Host       string
-	Port       uint32
-	DatabaseId int
-	Username   string
-	Password   string
-}
-
-func CreateDragonflyClient(
-	options *CreateDragonflyClientOptions,
-) dragonFlyClient {
-	client := redis.NewClient(&redis.Options{
-		Username: options.Username,
-		Password: options.Password,
-		DB:       options.DatabaseId,
-		Addr:     fmt.Sprintf("%s:%d", options.Host, options.Port),
-	})
-
-	if client == nil {
-		panic("Failed to create Redis client, check options validity")
-	}
-
-	return dragonFlyClient{dragonflyClientCommands{client}}
 }
 
 type dragonflyClientCommands struct {
@@ -149,7 +137,7 @@ type dragonFlyClient struct {
 	dragonflyClientCommands
 }
 
-func (self dragonFlyClient) StartTransaction() dragonFlyTransaction {
+func (self dragonFlyClient) StartTransaction() KeyValueStoreTransaction {
 	tx := self.client.TxPipeline()
 
 	return dragonFlyTransaction{

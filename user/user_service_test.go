@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"finanstar/server/crypto"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,9 +13,7 @@ import (
 func TestServiceCreate(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	hashedPassword, err := crypto.HashPassword(`secure-password`)
-
-	require.Nil(err)
+	cryptoMock := crypto.CreateMock()
 
 	subtests := []struct {
 		name   string
@@ -31,7 +30,7 @@ func TestServiceCreate(t *testing.T) {
 				User: &userEntity{
 					Id:       1,
 					Login:    `test@example.com`,
-					Password: hashedPassword,
+					Password: `hashed-secure-password`,
 				},
 			},
 		},
@@ -50,12 +49,31 @@ func TestServiceCreate(t *testing.T) {
 
 	for _, test := range subtests {
 		t.Run(test.name, func(tt *testing.T) {
-			userRepository := NewTestUserRepository()
-			userService := NewUserService(&userRepository)
+			userRepository := NewRepositoryMock()
+			builder := Builder{}
+			userService := builder.
+				Repository(userRepository).
+				Crypto(&cryptoMock).
+				Build()
+			ctx := context.Background()
+			hashedPassword := fmt.Sprintf("hashed-%s", test.dto.Password)
 
-			userRepository.CreateExpectResult(test.result.User, test.result.Error)
+			cryptoMock.
+				PasswordManagerMock.
+				On("Hash", test.dto.Password).
+				Return(hashedPassword, nil)
+
+			createUserDto := createUserRepositoryDto{
+				Login:    test.dto.Login,
+				Password: hashedPassword,
+			}
+
+			userRepository.
+				On("Create", ctx, createUserDto).
+				Return(test.result.User, test.result.Error)
+
 			createdUser, err := userService.Create(
-				context.Background(),
+				ctx,
 				test.dto,
 			)
 
@@ -77,14 +95,13 @@ func TestServiceCreate(t *testing.T) {
 func TestServiceUpdate(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
+	cryptoMock := crypto.CreateMock()
+
 	testUser := UserDto{
 		Id:       1,
 		Login:    `test@example.com`,
 		Password: `secure-password`,
 	}
-	hashedPassword, err := crypto.HashPassword(testUser.Password)
-
-	require.Nil(err)
 
 	subtests := []struct {
 		name   string
@@ -103,7 +120,7 @@ func TestServiceUpdate(t *testing.T) {
 				User: &userEntity{
 					Id:       testUser.Id,
 					Login:    `test@example.com`,
-					Password: hashedPassword,
+					Password: `hashed-secure-password`,
 				},
 			},
 		},
@@ -122,12 +139,31 @@ func TestServiceUpdate(t *testing.T) {
 
 	for _, test := range subtests {
 		t.Run(test.name, func(tt *testing.T) {
-			userRepository := NewTestUserRepository()
-			userService := NewUserService(&userRepository)
+			userRepository := NewRepositoryMock()
+			builder := Builder{}
+			userService := builder.
+				Repository(userRepository).
+				Crypto(&cryptoMock).
+				Build()
+			ctx := context.Background()
+			hashedPassword := fmt.Sprintf("hashed-%s", *test.dto.Password)
 
-			userRepository.UpdateExpectResult(test.result.User, test.result.Error)
+			cryptoMock.
+				PasswordManagerMock.
+				On("Hash", *test.dto.Password).
+				Return(hashedPassword, nil)
+
+			updateUserDto := updateUserRepositoryDto{
+				Login:    test.dto.Login,
+				Password: &hashedPassword,
+			}
+
+			userRepository.
+				On("Update", ctx, test.userId, updateUserDto).
+				Return(test.result.User, test.result.Error)
+
 			updatedUser, err := userService.Update(
-				context.Background(),
+				ctx,
 				test.userId,
 				test.dto,
 			)
@@ -151,14 +187,12 @@ func TestServiceUpdate(t *testing.T) {
 func TestServiceGetByLogin(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	hashedPassword, err := crypto.HashPassword(`secure-password`)
-
-	require.Nil(err)
+	cryptoMock := crypto.CreateMock()
 
 	testUser := UserDto{
 		Id:       1,
 		Login:    `test@example.com`,
-		Password: hashedPassword,
+		Password: `hashed-secure-password`,
 	}
 
 	subtests := []struct {
@@ -188,10 +222,18 @@ func TestServiceGetByLogin(t *testing.T) {
 
 	for _, test := range subtests {
 		t.Run(test.name, func(tt *testing.T) {
-			userRepository := NewTestUserRepository()
-			userService := NewUserService(&userRepository)
+			userRepository := NewRepositoryMock()
+			builder := Builder{}
+			userService := builder.
+				Repository(userRepository).
+				Crypto(&cryptoMock).
+				Build()
+			ctx := context.Background()
 
-			userRepository.GetByLoginExpectResult(test.result.User, test.result.Error)
+			userRepository.
+				On("GetByLogin", ctx, testUser.Login).
+				Return(test.result.User, test.result.Error)
+
 			user, err := userService.GetByLogin(context.Background(), testUser.Login)
 
 			if test.result.User != nil {

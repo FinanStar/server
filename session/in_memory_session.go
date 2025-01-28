@@ -4,79 +4,82 @@ import (
 	"context"
 	"errors"
 	"finanstar/server/crypto"
+	kvs "finanstar/server/key_value_store"
 	"fmt"
 	"strconv"
-
-	"github.com/redis/go-redis/v9"
 )
 
-// Implementation of session manager using Dragonfly DB
+// Implementation of session manager using in-memory key-value store
 
 const (
 	KNOWN_SESSIONS_SET_KEY_PREFIX = "known-sessions-set"
 	SESSION_KEY_PREFIX            = "session"
 )
 
-func NewDragonflySessionManager(client *redis.Client) *DragonflySessionManager {
-	return &DragonflySessionManager{client}
+type InMemorySMBuilder struct {
+	store  kvs.KeyValueStore
+	crypto crypto.Crypto
 }
 
-type CreateDragonflyClientOptions struct {
-	Host       string
-	Port       uint32
-	DatabaseId int
-	Username   string
-	Password   string
+func (self *InMemorySMBuilder) Store(
+	store kvs.KeyValueStore,
+) *InMemorySMBuilder {
+	self.store = store
+
+	return self
 }
 
-func CreateDragonflyClient(
-	options *CreateDragonflyClientOptions,
-) *redis.Client {
-	client := redis.NewClient(&redis.Options{
-		Username: options.Username,
-		Password: options.Password,
-		DB:       options.DatabaseId,
-		Addr:     fmt.Sprintf("%s:%d", options.Host, options.Port),
-	})
+func (self *InMemorySMBuilder) Crypto(
+	crypto crypto.Crypto,
+) *InMemorySMBuilder {
+	self.crypto = crypto
 
-	if client == nil {
-		panic("Failed to create Redis client, check options validity")
-	}
-
-	return client
+	return self
 }
 
-type DragonflySessionManager struct {
-	client *redis.Client
+func (self InMemorySMBuilder) Build() SessionManager {
+	return InMemorySessionManager{store: self.store, crypto: self.crypto}
 }
 
-func (dsm *DragonflySessionManager) CreateSession(
+func CreateInMemorySessionManager(
+	store kvs.KeyValueStore,
+	crypto crypto.Crypto,
+) InMemorySessionManager {
+	return InMemorySessionManager{store, crypto}
+}
+
+type InMemorySessionManager struct {
+	store  kvs.KeyValueStore
+	crypto crypto.Crypto
+}
+
+func (self InMemorySessionManager) CreateSession(
 	ctx context.Context,
 	sData *SessionData,
 ) (string, error) {
 	// Ensuring that sId will saved only if it is unique
 	for {
-		sId, err := crypto.GenerateSecureId(SESSION_ID_LENGTH)
+		sId, err := self.crypto.Generator().SecureId(SESSION_ID_LENGTH)
 
 		if err != nil {
 			return "", err
 		}
 
-		tx := dsm.client.TxPipeline()
+		tx := self.store.StartTransaction()
 
-		setCmd := tx.SetNX(
+		setCmd := tx.SetWithExpiration(
 			ctx,
 			fmt.Sprintf("%s:%s", SESSION_KEY_PREFIX, sId),
 			sData.UserId,
 			SESSION_TTL,
 		)
-		tx.SAdd(
+		tx.AddToVector(
 			ctx,
 			fmt.Sprintf("%s:%d", KNOWN_SESSIONS_SET_KEY_PREFIX, sData.UserId),
 			sId,
 		)
 
-		_, err = tx.Exec(ctx)
+		err = tx.Exec(ctx)
 
 		if err != nil {
 			return "", err
@@ -90,17 +93,17 @@ func (dsm *DragonflySessionManager) CreateSession(
 	}
 }
 
-func (dsm *DragonflySessionManager) DeleteSession(
+func (self InMemorySessionManager) DeleteSession(
 	ctx context.Context,
 	sId string,
 ) error {
 	sessionKey := fmt.Sprintf("%s:%s", SESSION_KEY_PREFIX, sId)
-	userId, err := dsm.client.Get(
+	userId, err := self.store.Get(
 		ctx,
 		sessionKey,
 	).Result()
 
-	if err == redis.Nil {
+	if err == kvs.NoItem {
 		return errors.New(SESSION_NOT_FOUND_ERROR)
 	}
 
@@ -113,26 +116,26 @@ func (dsm *DragonflySessionManager) DeleteSession(
 		KNOWN_SESSIONS_SET_KEY_PREFIX,
 		userId,
 	)
-	pipe := dsm.client.TxPipeline()
+	tx := self.store.StartTransaction()
 
-	pipe.Del(ctx, sessionKey)
-	pipe.SRem(ctx, knownSessionsSetKey, sId)
+	tx.Delete(ctx, sessionKey)
+	tx.DeleteFromVector(ctx, knownSessionsSetKey, sId)
 
-	_, err = pipe.Exec(ctx)
+	err = tx.Exec(ctx)
 
 	if err != nil {
 		return err
 	}
 
 	// #region Prevent memory leak in storage
-	sIds, err := dsm.client.SMembers(ctx, knownSessionsSetKey).Result()
+	sIds, err := self.store.GetVector(ctx, knownSessionsSetKey).Result()
 
 	if err != nil {
 		return err
 	}
 
 	if len(sIds) == 0 {
-		err = dsm.client.Del(ctx, knownSessionsSetKey).Err()
+		_, err = self.store.Delete(ctx, knownSessionsSetKey).Result()
 
 		if err != nil {
 			return err
@@ -143,11 +146,11 @@ func (dsm *DragonflySessionManager) DeleteSession(
 	return nil
 }
 
-func (dsm *DragonflySessionManager) RenewalSession(
+func (self InMemorySessionManager) RenewalSession(
 	ctx context.Context,
 	sId string,
 ) error {
-	success, err := dsm.client.Expire(
+	success, err := self.store.AssignExpiration(
 		ctx,
 		fmt.Sprintf("%s:%s", SESSION_KEY_PREFIX, sId),
 		SESSION_TTL,
@@ -164,16 +167,16 @@ func (dsm *DragonflySessionManager) RenewalSession(
 	return nil
 }
 
-func (dsm *DragonflySessionManager) GetSessionData(
+func (self InMemorySessionManager) GetSessionData(
 	ctx context.Context,
 	sId string,
 ) (*SessionData, error) {
-	userId, err := dsm.client.Get(
+	userId, err := self.store.Get(
 		ctx,
 		fmt.Sprintf("%s:%s", SESSION_KEY_PREFIX, sId),
 	).Result()
 
-	if err == redis.Nil {
+	if err == kvs.NoItem {
 		return nil, errors.New(SESSION_NOT_FOUND_ERROR)
 	}
 
@@ -190,7 +193,7 @@ func (dsm *DragonflySessionManager) GetSessionData(
 	return &SessionData{UserId: uint32(userIdConverted)}, nil
 }
 
-func (dsm *DragonflySessionManager) ResetSessions(
+func (self InMemorySessionManager) ResetSessions(
 	ctx context.Context,
 	userId uint32,
 ) error {
@@ -199,7 +202,7 @@ func (dsm *DragonflySessionManager) ResetSessions(
 		KNOWN_SESSIONS_SET_KEY_PREFIX,
 		userId,
 	)
-	sIds, err := dsm.client.SMembers(
+	sIds, err := self.store.GetVector(
 		ctx,
 		knownSessionsSetKey,
 	).Result()
@@ -208,21 +211,32 @@ func (dsm *DragonflySessionManager) ResetSessions(
 		return err
 	}
 
-	pipe := dsm.client.TxPipeline()
-	delSessionsCmd := pipe.Del(ctx, sIds...)
-	delKnownSessionsSetCmd := pipe.Del(ctx, knownSessionsSetKey)
+	tx := self.store.StartTransaction()
+	delSessionsCmds := []kvs.CommandResult[int64]{}
 
-	_, execErr := pipe.Exec(ctx)
+	for _, id := range sIds {
+		cmd := tx.Delete(ctx, id)
+
+		delSessionsCmds = append(delSessionsCmds, cmd)
+	}
+
+	delKnownSessionsSetCmd := tx.Delete(ctx, knownSessionsSetKey)
+
+	execErr := tx.Exec(ctx)
 
 	if execErr != nil {
 		return execErr
 	}
 
-	if err = delSessionsCmd.Err(); err != nil {
-		return err
+	for _, cmd := range delSessionsCmds {
+		_, err := cmd.Result()
+
+		if err != nil {
+			return err
+		}
 	}
 
-	if err = delKnownSessionsSetCmd.Err(); err != nil {
+	if _, err = delKnownSessionsSetCmd.Result(); err != nil {
 		return err
 	}
 

@@ -17,7 +17,6 @@ func checkMockExpectationsWereMet(t *testing.T, mock redismock.ClientMock) {
 	}
 }
 
-// TODO:
 func TestSingleOperations(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -86,7 +85,8 @@ func TestSingleOperations(t *testing.T) {
 			)
 
 			client, mock := redismock.NewClientMock()
-			dc := dragonFlyClient{dragonflyClientCommands{client}}
+			builder := DragonflyBuilder{}
+			dc := builder.Client(client).Build()
 			ctx := context.Background()
 			key := test.args[0].(string)
 
@@ -216,7 +216,8 @@ func TestNoItemError(t *testing.T) {
 			)
 
 			client, mock := redismock.NewClientMock()
-			dc := dragonFlyClient{dragonflyClientCommands{client}}
+			builder := DragonflyBuilder{}
+			dc := builder.Client(client).Build()
 			ctx := context.Background()
 			key := test.args[0].(string)
 
@@ -248,7 +249,8 @@ func TestTransaction(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 	client, mock := redismock.NewClientMock()
-	dc := dragonFlyClient{dragonflyClientCommands{client}}
+	builder := DragonflyBuilder{}
+	dc := builder.Client(client).Build()
 	ctx := context.Background()
 
 	mock.ExpectTxPipeline()

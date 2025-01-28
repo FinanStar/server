@@ -11,10 +11,6 @@ import (
 	utils_pgx "finanstar/server/utils"
 )
 
-func NewPostgresqlUserRepository(db utils_pgx.PgxPoolIface) postgresqlUserRepository {
-	return postgresqlUserRepository{db}
-}
-
 type postgresqlUserRepository struct {
 	db utils_pgx.PgxPoolIface
 }
@@ -137,4 +133,20 @@ func (self *postgresqlUserRepository) Create(
 	}
 
 	return &user, nil
+}
+
+type PostgresqlRepositoryBuilder struct {
+	db utils_pgx.PgxPoolIface
+}
+
+func (self *PostgresqlRepositoryBuilder) Db(
+	db utils_pgx.PgxPoolIface,
+) *PostgresqlRepositoryBuilder {
+	self.db = db
+
+	return self
+}
+
+func (self PostgresqlRepositoryBuilder) Build() postgresqlUserRepository {
+	return postgresqlUserRepository{db: self.db}
 }

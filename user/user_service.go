@@ -6,7 +6,8 @@ import (
 )
 
 type UserService struct {
-	repository UserRepository
+	repository userRepository
+	crypto     crypto.Crypto
 }
 
 type UserDto struct {
@@ -23,10 +24,6 @@ type UpdateUserDto struct {
 type CreateUserDto struct {
 	Login    string
 	Password string
-}
-
-func NewUserService(repository UserRepository) UserService {
-	return UserService{repository}
 }
 
 func makeUserDto(user *userEntity) *UserDto {
@@ -58,7 +55,7 @@ func (self *UserService) Update(
 	var hashedPassword *string
 
 	if dto.Password != nil {
-		password, err := crypto.HashPassword(*dto.Password)
+		password, err := self.crypto.PasswordManager().Hash(*dto.Password)
 
 		if err != nil {
 			return nil, err
@@ -84,7 +81,7 @@ func (self *UserService) Create(
 	ctx context.Context,
 	dto CreateUserDto,
 ) (*UserDto, error) {
-	hashedPassword, err := crypto.HashPassword(dto.Password)
+	hashedPassword, err := self.crypto.PasswordManager().Hash(dto.Password)
 
 	if err != nil {
 		return nil, err
@@ -100,4 +97,25 @@ func (self *UserService) Create(
 	}
 
 	return makeUserDto(userEntity), nil
+}
+
+type Builder struct {
+	repository userRepository
+	crypto     crypto.Crypto
+}
+
+func (self *Builder) Repository(repository userRepository) *Builder {
+	self.repository = repository
+
+	return self
+}
+
+func (self *Builder) Crypto(crypto crypto.Crypto) *Builder {
+	self.crypto = crypto
+
+	return self
+}
+
+func (self Builder) Build() UserService {
+	return UserService{repository: self.repository, crypto: self.crypto}
 }

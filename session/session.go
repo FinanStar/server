@@ -26,3 +26,7 @@ type SessionManager interface {
 type SessionData struct {
 	UserId uint32
 }
+
+type smBuilder interface {
+	Build() SessionManager
+}

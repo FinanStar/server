@@ -10,8 +10,9 @@ type Error string
 func (self Error) Error() string { return string(self) }
 
 const (
-	NO_ITEM_ERROR = "There is not items"
-	NoItem        = Error(NO_ITEM_ERROR)
+	NO_ITEM_ERROR = "There is no items"
+
+	NoItem = Error(NO_ITEM_ERROR)
 )
 
 type CommandResult[T interface{}] interface {
@@ -54,4 +55,8 @@ type KeyValueStoreTransaction interface {
 type KeyValueStore interface {
 	KeyValueStoreCommands
 	StartTransaction() KeyValueStoreTransaction
+}
+
+type kvsBuilder interface {
+	Build() KeyValueStore
 }
